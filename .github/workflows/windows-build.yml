@@ -95,36 +95,45 @@ jobs:
       # Known risk: the author's CMake marks dmrconf as a WIN32 (no-console) program, so
       # output may not show when run by hand in a console. The tool runs it with pipes;
       # these steps capture output the same way.
-      - name: Smoke test, version and radio list
-        shell: pwsh
-        run: |
-          cd stage/bin
-          $fail = $false
-          foreach ($args_ in @('--version','--list-radios')) {
-            $out = "../../smoke$($args_ -replace '-','_').txt"
-            & ./dmrconf.exe $args_ > $out 2>&1
-            $code = $LASTEXITCODE
-            $text = Get-Content $out -Raw
-            Write-Host "dmrconf $args_ -> exit code $code, $((Get-Item $out).Length) bytes of output"
-            Write-Host $text
-            "exit code: $code" | Add-Content $out
-            if ($code -eq -1073741515) { Write-Host "::error::exit 0xC0000135 = a DLL is missing"; $fail = $true }
-            elseif ([string]::IsNullOrWhiteSpace($text)) { Write-Host "::error::no output (no-console build? TD-003)"; $fail = $true }
-          }
-          if (-not (Select-String -Path ../../smoke__list_radios.txt -Pattern 'd878uv' -Quiet)) { $fail = $true }
-          if ($fail) { exit 1 }
+      # dmrconf is built as a Windows GUI-subsystem program (qdmr's CMake: WIN32), so a shell
+      # does not wait for it or show its output (TD-003). These tests launch it the way the
+      # tool's Python engine will: start it, wait for it, capture stdout/stderr through
+      # redirection, and read the exit code.
+      - name: Set up Python for the smoke tests
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
-      - name: Smoke test, encode an example codeplug for each AnyTone model
+      - name: Smoke tests (launched like the tool will, with captured output)
         shell: pwsh
         run: |
-          cd stage/bin
-          $fail = $false
-          foreach ($r in 'd878uv','d878uv2','d578uv') {
-            & ./dmrconf.exe encode --radio=$r ../../qdmr/examples/minimal.yaml ../../encode-$r.bin 2>&1 | Out-String | Write-Host
-            if (Test-Path ../../encode-$r.bin) { Write-Host "$r -> $((Get-Item ../../encode-$r.bin).Length) bytes (exit $LASTEXITCODE)" }
-            else { Write-Host "::error::encode failed for $r (exit $LASTEXITCODE)"; $fail = $true }
-          }
-          if ($fail) { exit 1 }
+          @'
+          import pathlib, subprocess, sys
+          bindir = pathlib.Path("stage/bin").resolve()
+          exe = bindir / "dmrconf.exe"
+          def run(args, name):
+              p = subprocess.run([str(exe), *args], cwd=bindir, capture_output=True, text=True, timeout=120)
+              out = (p.stdout or "") + (p.stderr or "")
+              pathlib.Path(f"smoke_{name}.txt").write_text(f"args: {args}\nexit code: {p.returncode}\n---\n{out}")
+              print(f"dmrconf {' '.join(args)} -> exit {p.returncode}, {len(out)} chars of output")
+              print(out[:2000])
+              return p.returncode, out
+          ok = True
+          rc, out = run(["--version"], "version")
+          rc, out = run(["--list-radios"], "list_radios")
+          if "d878uv" not in out:
+              print("::error::radio list not captured (TD-003: GUI-subsystem output not reaching pipes?)"); ok = False
+          ex = pathlib.Path("qdmr/examples/minimal.yaml").resolve()
+          for r in ("d878uv", "d878uv2", "d578uv"):
+              dst = pathlib.Path(f"encode-{r}.bin").resolve()
+              rc, out = run(["encode", f"--radio={r}", str(ex), str(dst)], f"encode_{r}")
+              if dst.exists():
+                  print(f"{r}: encoded {dst.stat().st_size} bytes")
+              else:
+                  print(f"::error::encode failed for {r}"); ok = False
+          sys.exit(0 if ok else 1)
+          '@ | Set-Content smoke.py
+          python smoke.py
 
       - name: Zip
         run: |
