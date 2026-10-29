@@ -55,12 +55,17 @@ jobs:
             mingw-w64-ucrt-x86_64-librsvg
             zip
 
+      # windows.h (pulled in by libusb.h) defines macros named ERROR, min, max, interface and
+      # small, which clash with ordinary names in qdmr's code. These three standard switches
+      # stop windows.h defining them. They change no qdmr source.
       - name: Configure (no source changes; Linux-only install steps switched off)
         run: >-
           cmake -S qdmr -B build -G Ninja
           -DCMAKE_BUILD_TYPE=Release
           -DINSTALL_UDEV_RULES=OFF
           -DINSTALL_APPSTREAM_DATA=OFF
+          -DCMAKE_C_FLAGS="-DWIN32_LEAN_AND_MEAN -DNOMINMAX -DNOGDI"
+          -DCMAKE_CXX_FLAGS="-DWIN32_LEAN_AND_MEAN -DNOMINMAX -DNOGDI"
           -DCMAKE_INSTALL_PREFIX="$PWD/stage"
 
       - name: Build
