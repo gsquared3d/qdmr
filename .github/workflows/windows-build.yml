@@ -77,6 +77,9 @@ jobs:
       - name: Bundle the DLLs it needs (Qt plugins + MSYS2 runtime)
         run: |
           set -e
+          # qdmr installs its own library (libdmrconf.dll) under lib/; Windows looks next to the .exe
+          cp -v stage/lib/*.dll stage/bin/ 2>/dev/null || true
+          find build -name 'libdmrconf*.dll' -exec cp -nv {} stage/bin/ \;
           cd stage/bin
           ls -la
           windeployqt6 --release --no-translations dmrconf.exe || true
@@ -96,21 +99,32 @@ jobs:
         shell: pwsh
         run: |
           cd stage/bin
-          ./dmrconf.exe --version 2>&1 | Tee-Object -FilePath ../../smoke-version.txt
-          ./dmrconf.exe --list-radios 2>&1 | Tee-Object -FilePath ../../smoke-radios.txt
-          if (-not (Select-String -Path ../../smoke-radios.txt -Pattern 'd878uv' -Quiet)) {
-            Write-Error "dmrconf printed no radio list (no-console build?). See smoke-radios.txt"
+          $fail = $false
+          foreach ($args_ in @('--version','--list-radios')) {
+            $out = "../../smoke$($args_ -replace '-','_').txt"
+            & ./dmrconf.exe $args_ > $out 2>&1
+            $code = $LASTEXITCODE
+            $text = Get-Content $out -Raw
+            Write-Host "dmrconf $args_ -> exit code $code, $((Get-Item $out).Length) bytes of output"
+            Write-Host $text
+            "exit code: $code" | Add-Content $out
+            if ($code -eq -1073741515) { Write-Host "::error::exit 0xC0000135 = a DLL is missing"; $fail = $true }
+            elseif ([string]::IsNullOrWhiteSpace($text)) { Write-Host "::error::no output (no-console build? TD-003)"; $fail = $true }
           }
+          if (-not (Select-String -Path ../../smoke__list_radios.txt -Pattern 'd878uv' -Quiet)) { $fail = $true }
+          if ($fail) { exit 1 }
 
       - name: Smoke test, encode an example codeplug for each AnyTone model
         shell: pwsh
         run: |
           cd stage/bin
+          $fail = $false
           foreach ($r in 'd878uv','d878uv2','d578uv') {
-            ./dmrconf.exe encode --radio=$r ../../qdmr/examples/minimal.yaml ../../encode-$r.bin 2>&1
-            if (-not (Test-Path ../../encode-$r.bin)) { Write-Error "encode failed for $r" }
-            Write-Host "$r -> $((Get-Item ../../encode-$r.bin).Length) bytes"
+            & ./dmrconf.exe encode --radio=$r ../../qdmr/examples/minimal.yaml ../../encode-$r.bin 2>&1 | Out-String | Write-Host
+            if (Test-Path ../../encode-$r.bin) { Write-Host "$r -> $((Get-Item ../../encode-$r.bin).Length) bytes (exit $LASTEXITCODE)" }
+            else { Write-Host "::error::encode failed for $r (exit $LASTEXITCODE)"; $fail = $true }
           }
+          if ($fail) { exit 1 }
 
       - name: Zip
         run: |
@@ -120,10 +134,11 @@ jobs:
           cd stage && zip -r "../qdmr-$QDMR_TAG-windows-x64.zip" bin
 
       - name: Upload
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: qdmr-${{ env.QDMR_TAG }}-windows-x64
           path: |
             qdmr-${{ env.QDMR_TAG }}-windows-x64.zip
-            smoke-*.txt
+            smoke*.txt
             encode-*.bin
