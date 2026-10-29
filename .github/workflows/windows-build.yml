@@ -1,0 +1,124 @@
+# Windows build of qdmr / dmrconf, from the author's UNCHANGED source (DD-15, DD-16).
+#
+# Lives in the gsquared3d fork of hmatuschek/qdmr. It checks out the author's code at a
+# pinned release tag, builds it with MSYS2 (UCRT64) on a GitHub-hosted Windows runner,
+# bundles the DLLs it needs, runs offline smoke tests, and uploads a zip.
+#
+# To build a newer qdmr release: change QDMR_TAG below (one line) and run the workflow.
+
+name: Windows build (unchanged upstream source)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [windows-build]
+    paths: [".github/workflows/windows-build.yml"]
+
+permissions:
+  contents: read
+
+env:
+  QDMR_TAG: v0.15.1   # author's release to build; pinned on purpose
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Get the author's source at the pinned tag
+        uses: actions/checkout@v4
+        with:
+          repository: hmatuschek/qdmr
+          ref: ${{ env.QDMR_TAG }}
+          path: qdmr
+
+      - name: Set up MSYS2 with Qt6, libusb and yaml-cpp
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-toolchain
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-qt6-base
+            mingw-w64-ucrt-x86_64-qt6-serialport
+            mingw-w64-ucrt-x86_64-qt6-positioning
+            mingw-w64-ucrt-x86_64-qt6-multimedia
+            mingw-w64-ucrt-x86_64-qt6-tools
+            mingw-w64-ucrt-x86_64-qt6-translations
+            mingw-w64-ucrt-x86_64-libusb
+            mingw-w64-ucrt-x86_64-yaml-cpp
+            mingw-w64-ucrt-x86_64-librsvg
+            zip
+
+      - name: Configure (no source changes; Linux-only install steps switched off)
+        run: >-
+          cmake -S qdmr -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DINSTALL_UDEV_RULES=OFF
+          -DINSTALL_APPSTREAM_DATA=OFF
+          -DCMAKE_INSTALL_PREFIX="$PWD/stage"
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Install into a staging folder
+        run: cmake --install build
+
+      - name: Bundle the DLLs it needs (Qt plugins + MSYS2 runtime)
+        run: |
+          set -e
+          cd stage/bin
+          ls -la
+          windeployqt6 --release --no-translations dmrconf.exe || true
+          [ -f qdmr.exe ] && windeployqt6 --release --no-translations qdmr.exe || true
+          # copy every non-system DLL the programs depend on, from the MSYS2 UCRT64 tree
+          for exe in *.exe *.dll; do
+            ldd "$exe" | awk '/\/ucrt64\//{print $3}'
+          done | sort -u | while read -r dll; do cp -n "$dll" . ; done
+          ls -la
+
+      # Offline smoke tests: no radio attached. These prove the program starts, finds its
+      # DLLs, and can encode a codeplug for each of Tom's AnyTone models.
+      # Known risk: the author's CMake marks dmrconf as a WIN32 (no-console) program, so
+      # output may not show when run by hand in a console. The tool runs it with pipes;
+      # these steps capture output the same way.
+      - name: Smoke test, version and radio list
+        shell: pwsh
+        run: |
+          cd stage/bin
+          ./dmrconf.exe --version 2>&1 | Tee-Object -FilePath ../../smoke-version.txt
+          ./dmrconf.exe --list-radios 2>&1 | Tee-Object -FilePath ../../smoke-radios.txt
+          if (-not (Select-String -Path ../../smoke-radios.txt -Pattern 'd878uv' -Quiet)) {
+            Write-Error "dmrconf printed no radio list (no-console build?). See smoke-radios.txt"
+          }
+
+      - name: Smoke test, encode an example codeplug for each AnyTone model
+        shell: pwsh
+        run: |
+          cd stage/bin
+          foreach ($r in 'd878uv','d878uv2','d578uv') {
+            ./dmrconf.exe encode --radio=$r ../../qdmr/examples/minimal.yaml ../../encode-$r.bin 2>&1
+            if (-not (Test-Path ../../encode-$r.bin)) { Write-Error "encode failed for $r" }
+            Write-Host "$r -> $((Get-Item ../../encode-$r.bin).Length) bytes"
+          }
+
+      - name: Zip
+        run: |
+          cp qdmr/LICENSE stage/bin/LICENSE-qdmr-GPL3.txt
+          printf 'qdmr %s built unchanged from https://github.com/hmatuschek/qdmr (tag %s)\nBuild: %s/%s/actions/runs/%s\n' \
+            "$QDMR_TAG" "$QDMR_TAG" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" > stage/bin/BUILD-INFO.txt
+          cd stage && zip -r "../qdmr-$QDMR_TAG-windows-x64.zip" bin
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: qdmr-${{ env.QDMR_TAG }}-windows-x64
+          path: |
+            qdmr-${{ env.QDMR_TAG }}-windows-x64.zip
+            smoke-*.txt
+            encode-*.bin
