@@ -62,7 +62,7 @@ AnytoneAPRSFrequencyList::allocateChild(const YAML::Node &node, ConfigItem::Cont
  * Implementation of AnytoneChannelExtension
  * ********************************************************************************************* */
 AnytoneChannelExtension::AnytoneChannelExtension(QObject *parent)
-  : ConfigExtension(parent), _frequencyCorrection(0), _handsFree(false),
+  : ConfigExtension(parent), _frequencyCorrection(0), _memorySlot(-1), _handsFree(false),
     _fmAPRSFrequency(new AnytoneAPRSFrequencyRef(this)), _aprsPTT(APRSPTT::Off)
 {
   // pass...
@@ -77,6 +77,18 @@ AnytoneChannelExtension::setFrequencyCorrection(int corr) {
   if (corr == _frequencyCorrection)
     return;
   _frequencyCorrection = corr;
+  emit modified(this);
+}
+
+int
+AnytoneChannelExtension::memorySlot() const {
+  return _memorySlot;
+}
+void
+AnytoneChannelExtension::setMemorySlot(int slot) {
+  if (slot == _memorySlot)
+    return;
+  _memorySlot = slot;
   emit modified(this);
 }
 

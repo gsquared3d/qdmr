@@ -4537,6 +4537,33 @@ AnytoneCodeplug::clear() {
   this->allocateBitmaps();
 }
 
+int
+AnytoneCodeplug::channelSlot(const Channel *ch) {
+  if (ch->is<FMChannel>()) {
+    if (auto *ext = ch->as<FMChannel>()->anytoneChannelExtension())
+      return ext->memorySlot();
+  } else if (ch->is<DMRChannel>()) {
+    if (auto *ext = ch->as<DMRChannel>()->anytoneChannelExtension())
+      return ext->memorySlot();
+  }
+  return -1;
+}
+
+void
+AnytoneCodeplug::setChannelSlot(Channel *ch, int slot) {
+  if (ch->is<FMChannel>()) {
+    FMChannel *fm = ch->as<FMChannel>();
+    if (nullptr == fm->anytoneChannelExtension())
+      fm->setAnytoneChannelExtension(new AnytoneFMChannelExtension());
+    fm->anytoneChannelExtension()->setMemorySlot(slot);
+  } else if (ch->is<DMRChannel>()) {
+    DMRChannel *dmr = ch->as<DMRChannel>();
+    if (nullptr == dmr->anytoneChannelExtension())
+      dmr->setAnytoneChannelExtension(new AnytoneDMRChannelExtension());
+    dmr->anytoneChannelExtension()->setMemorySlot(slot);
+  }
+}
+
 bool
 AnytoneCodeplug::index(Config *config, Context &ctx, const ErrorStack &err) const {
   Q_UNUSED(err)
@@ -4567,14 +4594,28 @@ AnytoneCodeplug::index(Config *config, Context &ctx, const ErrorStack &err) cons
   for (int i=0; i<config->rxGroupLists()->count(); i++)
     ctx.add(config->rxGroupLists()->list(i), i);
 
-  // Map channels
-  for (int i=0, common=0, am=0; i<config->channelList()->count(); i++) {
-    if (config->channelList()->channel(i)->is<DMRChannel>() ||
-        config->channelList()->channel(i)->is<FMChannel>()) {
-      ctx.add(config->channelList()->channel(i), common++);
-    } else if (config->channelList()->channel(i)->is<AMChannel>()) {
-      ctx.add(config->channelList()->channel(i), am++);
+  // Map channels. A channel read from the radio keeps the memory slot it was read from, so
+  // the radio's channel numbering (and anything stored per slot) is left as it is. Channels
+  // without a slot (new ones) take the lowest free slots, in list order.
+  QSet<int> usedSlots;
+  QList<Channel *> unplaced;
+  for (int i=0, am=0; i<config->channelList()->count(); i++) {
+    Channel *ch = config->channelList()->channel(i);
+    if (ch->is<DMRChannel>() || ch->is<FMChannel>()) {
+      int slot = channelSlot(ch);
+      if ((slot >= 0) && (! usedSlots.contains(slot))) {
+        ctx.add(ch, slot); usedSlots.insert(slot);
+      } else {
+        unplaced.append(ch);
+      }
+    } else if (ch->is<AMChannel>()) {
+      ctx.add(ch, am++);
     }
+  }
+  for (int slot=0; ! unplaced.isEmpty(); slot++) {
+    if (usedSlots.contains(slot))
+      continue;
+    ctx.add(unplaced.takeFirst(), slot); usedSlots.insert(slot);
   }
 
   // Map zones

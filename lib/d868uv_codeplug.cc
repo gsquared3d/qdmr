@@ -1432,8 +1432,9 @@ D868UVCodeplug::setBitmaps(Context& ctx)
 
   // Mark valid channels (set bit)
   ChannelBitmapElement channel_bitmap(data(Offset::channelBitmap()));
-  unsigned int num_channels = std::min(Limit::numChannels(), ctx.count<Channel>());
-  channel_bitmap.clear(); channel_bitmap.enableFirst(num_channels);
+  channel_bitmap.clear();
+  for (unsigned int i=0; i<Limit::numChannels(); i++)
+    channel_bitmap.setEncoded(i, ctx.has<Channel>(i));
 
   // Mark valid contacts (clear bit)
   ContactBitmapElement contact_bitmap(data(Offset::contactBitmap()));
@@ -1630,7 +1631,9 @@ D868UVCodeplug::encodeChannels(const Flags &flags, Context &ctx, const ErrorStac
   Q_UNUSED(flags); Q_UNUSED(err)
 
   // Encode channels
-  for (unsigned int i=0; i<ctx.count<Channel>(); i++) {
+  for (unsigned int i=0; i<Limit::numChannels(); i++) {
+    if (! ctx.has<Channel>(i))
+      continue;
     // enable channel
     uint16_t bank = i/Limit::channelsPerBank(), idx = i%Limit::channelsPerBank();
     ChannelElement ch(data(Offset::channelBanks() + bank * Offset::betweenChannelBanks()
@@ -1655,7 +1658,7 @@ D868UVCodeplug::createChannels(Context &ctx, const ErrorStack &err) {
     ChannelElement ch(data(Offset::channelBanks() + bank*Offset::betweenChannelBanks()
                            + idx*ChannelElement::size()));
     if (Channel *obj = ch.toChannelObj(ctx)) {
-      ctx.config()->channelList()->add(obj); ctx.add(obj, i);
+      ctx.config()->channelList()->add(obj); ctx.add(obj, i); setChannelSlot(obj, i);
     }
   }
   return true;

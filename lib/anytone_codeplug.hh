@@ -3416,6 +3416,15 @@ public:
 protected:
   virtual bool index(Config *config, Context &ctx, const ErrorStack &err=ErrorStack()) const;
 
+public:
+  /** Returns the memory slot recorded for a channel when it was read from the radio
+   * (AnyTone channel extension), or -1 if it has none. */
+  static int channelSlot(const Channel *ch);
+  /** Records the memory slot a channel was read from (creates the AnyTone extension if needed). */
+  static void setChannelSlot(Channel *ch, int slot);
+
+protected:
+
   /** Allocates the bitmaps. This is also performed during a clear. */
   virtual bool allocateBitmaps() = 0;
   /** Sets all bitmaps for the given config. */
