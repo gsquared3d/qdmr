@@ -1,5 +1,6 @@
 #include "anytone_preserve_test.hh"
 #include "anytone_preserve.hh"
+#include "anytone_writeall.hh"
 #include "anytone_codeplug.hh"
 #include "d868uv_codeplug.hh"
 #include "d878uv_codeplug.hh"
@@ -411,6 +412,74 @@ void AnytonePreserveTest::testMemoryFileRoundTrip() {
   APW::Memory back;
   QVERIFY(APW::readMemoryFile(fn, back));
   QCOMPARE(back, mem);
+}
+
+
+/* Write maps (D-114): only models with a CPS write capture have one (INV-020). */
+void AnytonePreserveTest::testWriteMaps_data() {
+  QTest::addColumn<QString>("radio");
+  QTest::addColumn<int>("blocks");
+  QTest::addColumn<int>("pages");
+  QTest::newRow("d868uve") << "d868uve" << 0 << 0;
+  QTest::newRow("d878uv")  << "d878uv"  << 0 << 0;
+  QTest::newRow("d878uv2") << "d878uv2" << 12986 << 29;   // CPS 3.06, W-01
+  QTest::newRow("d578uv")  << "d578uv"  << 12841 << 30;   // CPS 1.18, W-07
+  QTest::newRow("d168uv")  << "d168uv"  << 0 << 0;
+}
+void AnytonePreserveTest::testWriteMaps() {
+  QFETCH(QString, radio); QFETCH(int, blocks); QFETCH(int, pages);
+  std::unique_ptr<AnytoneCodeplug> cp(makeCodeplug(radio));
+  const AnytoneWriteAll::Map *map = AnytoneWriteAll::forCodeplug(*cp);
+  if (0 == blocks) { QVERIFY(nullptr == map); return; }
+  QVERIFY(nullptr != map);
+  QCOMPARE(map->pageSize, 0x4000u);
+  unsigned prev = 0; int n = 0;
+  for (const auto &r : map->cps) {
+    QVERIFY2((0 == r.first % APW::BlockSize) && (0 == r.second % APW::BlockSize), "range not block-aligned");
+    QVERIFY2(r.first < r.second, "empty range");
+    QVERIFY2(r.first > prev || 0 == n, "ranges not ascending or overlapping");
+    prev = r.second - 1;
+    n += (r.second - r.first) / APW::BlockSize;
+  }
+  QCOMPARE(n, blocks);
+  QCOMPARE(AnytoneWriteAll::pages(*map).size(), pages);
+}
+
+/* An unedited write everything sends only the radio's own bytes and changes nothing. */
+void AnytonePreserveTest::testWriteAllNoEditSendsRadioOwn_data() {
+  QTest::addColumn<QString>("radio");
+  QTest::newRow("d878uv2") << QString("d878uv2");
+  QTest::newRow("d578uv")  << QString("d578uv");
+}
+void AnytonePreserveTest::testWriteAllNoEditSendsRadioOwn() {
+  QFETCH(QString, radio);
+  std::unique_ptr<AnytoneCodeplug> cp(makeCodeplug(radio));
+  APW::Memory mem; QString msg, c0;
+  QVERIFY2(makeRadio(*cp, mem, msg), qPrintable(msg));
+  QVERIFY2(readRadio(*cp, mem, c0, msg), qPrintable(msg));
+  Config config;
+  QVERIFY2(load(c0, config, msg), qPrintable(msg));
+  ErrorStack err;
+  Config *pre = cp->preprocess(&config, err);
+  QVERIFY2(pre, qPrintable(err.format()));
+  const AnytoneWriteAll::Map *map = AnytoneWriteAll::forCodeplug(*cp);
+  QVERIFY(nullptr != map);
+  QTemporaryDir tmp;
+  AnytoneWriteAll::Result res;
+  Codeplug::Flags flags;
+  bool ok = AnytoneWriteAll::build(*cp, *map, simulatedRadio(mem), pre, flags, res,
+                                   tmp.filePath("current.yaml"), nullptr, err);
+  delete pre;
+  QVERIFY2(ok, qPrintable(err.format()));
+  QCOMPARE(res.blocksChanged, 0u);
+  QCOMPARE(res.pagesAdded, 0u);
+  QVERIFY(res.send.size() > 0);
+  for (auto it = res.send.cbegin(); it != res.send.cend(); it++)
+    QVERIFY2(res.image.value(it.key()) == *it,
+             qPrintable(QString("block 0x%1 is not the radio's own").arg(it.key(), 0, 16)));
+  for (auto it = res.expected.cbegin(); it != res.expected.cend(); it++)
+    QVERIFY2(res.image.value(it.key()) == *it,
+             qPrintable(QString("expected block 0x%1 differs from the radio").arg(it.key(), 0, 16)));
 }
 
 QTEST_GUILESS_MAIN(AnytonePreserveTest)

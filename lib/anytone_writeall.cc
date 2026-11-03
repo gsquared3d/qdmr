@@ -7,6 +7,7 @@
 #include "logger.hh"
 #include "anytone_codeplug.hh"
 #include "d878uv2_codeplug.hh"
+#include "d578uv_codeplug.hh"
 
 static constexpr unsigned BS = AnytonePreservingWrite::BlockSize;
 
@@ -47,10 +48,48 @@ static const AnytoneWriteAll::Map d878uv2Map = {
 };
 
 
+/* D578UV: every block AnyTone CPS 1.18 writes, from the USB capture of the CPS writing Tom's
+ * D578UV (III Pro, firmware V110) back unchanged (ham-radio-coordinator W-07, 2026-11-03; 12,841
+ * blocks in 30 pages). The 16 KB page size is taken from the D878UVII (W-04 §4b) and not yet proven
+ * on this model; whole pages are read and every block holding data in them is sent, so a smaller
+ * erase page loses nothing, and the dry run checks the rest of each 64 KB block is blank (W-08).
+ * D578UV and D578UV II share this codeplug class; only the D578UV was captured. */
+static const AnytoneWriteAll::Map d578uvMap = {
+  "AnyTone AT-D578UV", 0x4000, {
+    {0x00800000, 0x00800580}, {0x00800680, 0x00800c00}, {0x00800c40, 0x00800d40},
+    {0x00800d80, 0x00802580}, {0x00802680, 0x00802c00}, {0x00802c40, 0x00802d40},
+    {0x00802d80, 0x00804000}, {0x00840000, 0x00844000}, {0x00880000, 0x008813c0},
+    {0x00881400, 0x008833c0}, {0x00883400, 0x00884000}, {0x008c0000, 0x008c4000},
+    {0x00900000, 0x00904000}, {0x00940000, 0x00940d80}, {0x00940dc0, 0x00942d80},
+    {0x00942dc0, 0x00944000}, {0x00980000, 0x00984000}, {0x009c0000, 0x009c1380},
+    {0x009c13c0, 0x009c1940}, {0x009c1b80, 0x009c1cc0}, {0x009c1d00, 0x009c1e80},
+    {0x009c2000, 0x009c3380}, {0x009c33c0, 0x009c3940}, {0x009c3b80, 0x009c3cc0},
+    {0x009c3d00, 0x009c3e80}, {0x00fc0800, 0x00fc0880}, {0x00fc2800, 0x00fc2880},
+    {0x01000000, 0x01001000}, {0x01040000, 0x01040020}, {0x01042000, 0x01042020},
+    {0x01042080, 0x01042090}, {0x01043000, 0x01043080}, {0x01080000, 0x010800a0},
+    {0x01640800, 0x01640890}, {0x02480000, 0x02480020}, {0x02480200, 0x02480230},
+    {0x024c0c80, 0x024c0c90}, {0x024c0d00, 0x024c0f00}, {0x024c1000, 0x024c10d0},
+    {0x024c1280, 0x024c12a0}, {0x024c1300, 0x024c1380}, {0x024c1400, 0x024c1420},
+    {0x024c1440, 0x024c1470}, {0x024c1500, 0x024c1740}, {0x024c1800, 0x024c1d00},
+    {0x024c2000, 0x024c23f0}, {0x024c2600, 0x024c2610}, {0x024c4000, 0x024c8000},
+    {0x02500000, 0x025000f0}, {0x02500100, 0x02500630}, {0x02501000, 0x02501100},
+    {0x02501200, 0x02501240}, {0x02501280, 0x025012b0}, {0x02501400, 0x02501600},
+    {0x02501800, 0x02501900}, {0x02504000, 0x02504400}, {0x02540000, 0x02540100},
+    {0x02580000, 0x02580020}, {0x025c0000, 0x025c0980}, {0x025c0b00, 0x025c0b30},
+    {0x025c0c00, 0x025c1bf0}, {0x02600000, 0x02609c40}, {0x02640000, 0x026404f0},
+    {0x02680000, 0x02680070}, {0x02900000, 0x02900080}, {0x02900100, 0x02900180},
+    {0x02bc0000, 0x02bc0020}, {0x02bc0c60, 0x02bc0c80}, {0x02bc1000, 0x02bc1060},
+    {0x04800000, 0x04800010}, {0x04840000, 0x04840010}
+  },
+  "CPS 1.18 write capture of Tom's D578UV, 2026-11-03 (ham-radio-coordinator W-07)"
+};
+
 const AnytoneWriteAll::Map *
 AnytoneWriteAll::forCodeplug(const AnytoneCodeplug &cp) {
   if (dynamic_cast<const D878UV2Codeplug *>(&cp))
     return &d878uv2Map;
+  if (dynamic_cast<const D578UVCodeplug *>(&cp))
+    return &d578uvMap;
   return nullptr;
 }
 

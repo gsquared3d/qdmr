@@ -24,6 +24,10 @@ private slots:
   void testAPRSOnlyChannelTakesNoSlot_data();
   void testAPRSOnlyChannelTakesNoSlot();
   void testMemoryFileRoundTrip();
+  void testWriteMaps_data();
+  void testWriteMaps();
+  void testWriteAllNoEditSendsRadioOwn_data();
+  void testWriteAllNoEditSendsRadioOwn();
 };
 
 #endif // ANYTONE_PRESERVE_TEST_HH
