@@ -533,6 +533,11 @@ public:
 
   Config* preprocess(Config *config, const ErrorStack &err) const;
 
+  /** gsquared3d fork (TD-011): channel records are 0x40 bytes, @c Limit::channelsPerBank() per
+   * bank, banks at @c Offset::channelBanks() + n * @c Offset::betweenChannelBanks(). Every
+   * AnyTone codeplug in qdmr derives from this one. */
+  bool channelRecordOffset(unsigned addr, unsigned &offset) const;
+
 protected:
   bool allocateBitmaps();
   virtual void setBitmaps(Context &ctx);

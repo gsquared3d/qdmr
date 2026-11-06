@@ -12,6 +12,11 @@
  *     E0 and E1.
  *  4. For every bit: take E1 where E1 differs from E0, otherwise keep @c orig. Bitmaps hold eight
  *     channels per byte, so this is done bit by bit, not byte by byte.
+ *     Exception (TD-011, D-122): a channel field that holds one value of several bits (a
+ *     frequency, the TX offset, a tone code, a mode) is taken whole from E1 when E1 differs
+ *     from E0 anywhere in it, because the radio may hold leftovers there (the CPS leaves a
+ *     simplex channel's own frequency in its offset field). See
+ *     @c AnytoneCodeplug::channelWholeFields().
  *  5. Write only the 16-byte blocks that end up different from @c orig. A block the radio does
  *     not hold is written only if the edit touches it.
  *  6. By default (wholeElements) every changed block is written together with the rest of the
@@ -65,6 +70,7 @@ public:
     unsigned bytesChanged = 0;     ///< bytes that differ between radio and plan
     unsigned blocksChanged = 0;    ///< planned blocks whose content changes
     unsigned blocksPadding = 0;    ///< planned blocks written unchanged to complete their area
+    unsigned wholeFields = 0;      ///< channel fields taken whole from the edit (TD-011)
   };
 
 public:

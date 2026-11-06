@@ -4537,6 +4537,40 @@ AnytoneCodeplug::clear() {
   this->allocateBitmaps();
 }
 
+QList<QPair<unsigned, QByteArray>>
+AnytoneCodeplug::ChannelElement::wholeFields() {
+  auto bits2 = [](const Offset::Bit &b) { return QByteArray(1, char(0x03 << b.bit)); };
+  QList<QPair<unsigned, QByteArray>> f;
+  f << qMakePair(Offset::rxFrequency(), QByteArray(4, char(0xff)))
+    << qMakePair(Offset::txFrequencyOffset(), QByteArray(4, char(0xff)))
+    << qMakePair(Offset::channelMode().byte, bits2(Offset::channelMode()))
+    << qMakePair(Offset::power().byte, bits2(Offset::power()))
+    << qMakePair(Offset::repeaterMode().byte, bits2(Offset::repeaterMode()))
+    << qMakePair(Offset::rxSignalingMode().byte, bits2(Offset::rxSignalingMode()))
+    << qMakePair(Offset::txSignalingMode().byte, bits2(Offset::txSignalingMode()))
+    << qMakePair(Offset::txCTCSS(), QByteArray(1, char(0xff)))
+    << qMakePair(Offset::rxCTCSS(), QByteArray(1, char(0xff)))
+    << qMakePair(Offset::txDCS(), QByteArray(2, char(0xff)))
+    << qMakePair(Offset::rxDCS(), QByteArray(2, char(0xff)))
+    << qMakePair(Offset::customCTCSS(), QByteArray(2, char(0xff)))
+    << qMakePair(Offset::scanListIndex(), QByteArray(1, char(0xff)));
+  return f;
+}
+
+const QList<AnytoneCodeplug::WholeField> &
+AnytoneCodeplug::channelWholeFields() {
+  static QList<WholeField> fields;
+  if (fields.isEmpty())
+    for (const auto &p : ChannelElement::wholeFields())
+      fields.append(WholeField{p.first, p.second});
+  return fields;
+}
+
+bool
+AnytoneCodeplug::channelRecordOffset(unsigned, unsigned &) const {
+  return false;
+}
+
 int
 AnytoneCodeplug::channelSlot(const Channel *ch) {
   if (ch->is<FMChannel>()) {

@@ -190,6 +190,27 @@ AnytonePreservingWrite::plan(AnytoneCodeplug &cp, const Reader &read, Config *ed
       else
         fin[i] = char((uint8_t(o->at(i)) & ~d) | (e1b & d));
     }
+    // 4b. Whole fields (TD-011, D-122): where the edit changes a field holding one value of
+    //     several bits, take the whole field from E1, not only the bits that differ. The radio
+    //     (or the CPS) may hold leftovers there that qdmr's encoding of C0 does not show.
+    unsigned recOff = 0;
+    if (held && (z != e0.cend()) && cp.channelRecordOffset(addr, recOff)) {
+      for (const auto &field : AnytoneCodeplug::channelWholeFields()) {
+        if ((field.offset < recOff) || ((field.offset + field.mask.size()) > (recOff + BlockSize)))
+          continue;
+        unsigned at = field.offset - recOff;
+        bool fieldEdited = false;
+        for (int k=0; k<field.mask.size(); k++)
+          fieldEdited |= (0 != ((uint8_t(z->at(at+k)) ^ uint8_t(n1.at(at+k))) & uint8_t(field.mask.at(k))));
+        if (! fieldEdited)
+          continue;
+        for (int k=0; k<field.mask.size(); k++) {
+          uint8_t m = uint8_t(field.mask.at(k));
+          fin[at+k] = char((uint8_t(o->at(at+k)) & ~m) | (uint8_t(n1.at(at+k)) & m));
+        }
+        stats.wholeFields++;
+      }
+    }
     if ((! held) && (! anyEdit))
       continue;
     if (held && (o.value() == fin))
@@ -261,6 +282,7 @@ AnytonePreservingWrite::writePlanFile(const QString &filename, const Plan &plan,
       << "# blocks to write: " << stats.blocksToWrite << " (changed: " << stats.blocksChanged
       << ", new: " << stats.blocksNew << ", unchanged area padding: " << stats.blocksPadding << ")\n"
       << "# bytes changed: " << stats.bytesChanged << "\n"
+      << "# channel fields taken whole (TD-011): " << stats.wholeFields << "\n"
       << "# address before after\n";
   for (auto it=plan.cbegin(); it!=plan.cend(); it++) {
     if (it->before == it->after)

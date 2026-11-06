@@ -545,4 +545,84 @@ void AnytonePreserveTest::testWriteAllRestoresImageExactly() {
   QCOMPARE(again.plan.size(), 0);
 }
 
+/** Finds the address of the channel record named @c name in @c mem, or 0. */
+static unsigned recordOf(const AnytoneCodeplug &cp, const APW::Memory &mem, const QByteArray &name) {
+  for (auto it=mem.cbegin(); it!=mem.cend(); it++) {
+    unsigned off = 0;
+    if ((! cp.channelRecordOffset(it.key(), off)) || (0x20 != off)) continue;
+    if ((it->mid(3, name.size()) == name) && (0 == it->at(3+name.size())))
+      return it.key() - 0x20;
+  }
+  return 0;
+}
+
+/* TD-011 (W-08 finding 1, D-122): the CPS leaves a simplex channel's own frequency in its TX
+ * offset field. Turning such a channel into a split one must give the right TX frequency, and
+ * turning it back must give simplex again. The changed fields are written whole. */
+void AnytonePreserveTest::testSimplexToSplitAndBack_data() { radios(); }
+void AnytonePreserveTest::testSimplexToSplitAndBack() {
+  QFETCH(QString, radio);
+  std::unique_ptr<AnytoneCodeplug> cp(makeCodeplug(radio));
+  APW::Memory mem; QString msg, c0;
+  QVERIFY2(makeRadio(*cp, mem, msg), qPrintable(msg));
+
+  // The CPS's leftover: FM B (simplex, 145.6125 MHz) holds its own frequency as its offset.
+  unsigned rec = recordOf(*cp, mem, "FM B");
+  QVERIFY2(0 != rec, "FM B not found");
+  QByteArray b0 = mem[rec];
+  QCOMPARE(uint8_t(b0.at(8)) & 0xc0, 0x00);   // repeater mode: simplex
+  b0.replace(4, 4, b0.mid(0, 4));
+  mem[rec] = b0;
+  QVERIFY2(readRadio(*cp, mem, c0, msg), qPrintable(msg));
+  Config before;
+  QVERIFY2(load(c0, before, msg), qPrintable(msg));
+  QCOMPARE(byName(before, "FM B")->txFrequency(), Frequency::fromMHz(145.6125)); // still simplex
+
+  struct Case { const char *what; double rx, tx; };
+  const Case cases[] = {
+    {"RX only moved (W-08 case 1): split by 12.5 kHz", 145.6250, 145.6125},
+    {"back to simplex", 145.6125, 145.6125},
+    {"repeater split, -600 kHz", 145.6125, 145.0125},
+    {"repeater split, +600 kHz", 145.6125, 146.2125},
+    {"back to simplex", 145.6125, 145.6125},
+  };
+  for (const Case &c : cases) {
+    QString cur, edited;
+    QVERIFY2(readRadio(*cp, mem, cur, msg), qPrintable(msg));
+    // Edit only FM B's two frequency lines (FM B is the only channel on 145.6125 MHz).
+    QStringList lines = cur.split('\n');
+    int at = -1;
+    for (int i=0; i<lines.size(); i++) if (lines[i].trimmed() == "name: FM B") at = i;
+    QVERIFY2(at >= 0, "FM B not in the read");
+    for (int i=at; (i<lines.size()) && (i<at+12); i++) {
+      if (lines[i].trimmed().startsWith("rxFrequency:"))
+        lines[i] = lines[i].left(lines[i].indexOf("rxFrequency:")) + QString("rxFrequency: %1 MHz").arg(c.rx, 0, 'f', 4);
+      if (lines[i].trimmed().startsWith("txFrequency:"))
+        lines[i] = lines[i].left(lines[i].indexOf("txFrequency:")) + QString("txFrequency: %1 MHz").arg(c.tx, 0, 'f', 4);
+    }
+    edited = lines.join('\n');
+    APW::Plan plan; QString ignored;
+    QVERIFY2(planYAML(*cp, mem, edited, plan, ignored, msg), qPrintable(msg));
+    QVERIFY2(changed(plan) >= 1, c.what);
+    // Only FM B's first record block may change content (frequencies, offset, repeater mode).
+    for (auto it=plan.cbegin(); it!=plan.cend(); it++)
+      if (it->before != it->after)
+        QVERIFY2(it.key() == rec, qPrintable(QString("%1: unexpected block 0x%2").arg(c.what).arg(it.key(), 0, 16)));
+    APW::Memory after = apply(mem, plan);
+    QString c2; Config now;
+    QVERIFY2(readRadio(*cp, after, c2, msg), qPrintable(msg));
+    QVERIFY2(load(c2, now, msg), qPrintable(msg));
+    QVERIFY2(byName(now, "FM B")->rxFrequency() == Frequency::fromMHz(c.rx), c.what);
+    QVERIFY2(byName(now, "FM B")->txFrequency() == Frequency::fromMHz(c.tx),
+             qPrintable(QString("%1: TX is %2").arg(c.what, byName(now, "FM B")->txFrequency().format())));
+    QCOMPARE(digitalFingerprint(now), digitalFingerprint(before));
+    QCOMPARE(zoneFingerprint(now), zoneFingerprint(before));
+    // Idempotent: the same edit again writes nothing.
+    APW::Plan again;
+    QVERIFY2(planYAML(*cp, after, edited, again, ignored, msg), qPrintable(msg));
+    QCOMPARE(changed(again), 0);
+    mem = after;
+  }
+}
+
 QTEST_GUILESS_MAIN(AnytonePreserveTest)

@@ -350,6 +350,11 @@ public:
       static constexpr unsigned int nameLength() { return 16; }
     };
 
+    /** gsquared3d fork (TD-011): the fields of this record that hold one multi-bit value
+     * (RX frequency, TX offset, channel mode, power, repeater mode, signaling modes, CTCSS and
+     * DCS codes, custom CTCSS, scan list index). As (byte offset, bit mask) pairs. */
+    static QList<QPair<unsigned, QByteArray>> wholeFields();
+
   protected:
     /** Internal used offsets within the channel element. */
     struct Offset: public Element::Offset {
@@ -3428,6 +3433,22 @@ public:
   static int zoneSlot(const Zone *zone);
   /** Records the place a zone was read from (creates the AnyTone extension if needed). */
   static void setZoneSlot(Zone *zone, int slot);
+
+  /** gsquared3d fork (TD-011, D-122): one field of a channel record that holds a single value
+   * of several bits (a frequency, the TX offset, a tone code, a mode). @c offset is the byte
+   * offset within the record, @c mask the bits that belong to the field, one byte per byte of
+   * the field. A preserving write takes such a field whole from the edit when the edit changes
+   * it ("replace the entire box"). */
+  struct WholeField {
+    unsigned offset;  ///< Byte offset within the channel record.
+    QByteArray mask;  ///< The field's bits, starting at @c offset.
+  };
+  /** The whole fields of an AnyTone channel record (see @c ChannelElement::wholeFields()). */
+  static const QList<WholeField> &channelWholeFields();
+  /** If @c addr lies inside a channel record of this codeplug's memory layout, returns true and
+   * sets @c offset to the position of @c addr within that record. The base class knows no
+   * channel records and returns false. */
+  virtual bool channelRecordOffset(unsigned addr, unsigned &offset) const;
 
 protected:
 

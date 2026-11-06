@@ -1320,6 +1320,22 @@ D868UVCodeplug::D868UVCodeplug(QObject *parent)
   // pass...
 }
 
+bool
+D868UVCodeplug::channelRecordOffset(unsigned addr, unsigned &offset) const {
+  if (addr < Offset::channelBanks())
+    return false;
+  unsigned rel = addr - Offset::channelBanks();
+  unsigned bank = rel / Offset::betweenChannelBanks();
+  unsigned inBank = rel % Offset::betweenChannelBanks();
+  unsigned idx = inBank / ChannelElement::size();
+  if (idx >= Limit::channelsPerBank())
+    return false;
+  if ((bank*Limit::channelsPerBank() + idx) >= Limit::numChannels())
+    return false;
+  offset = inBank % ChannelElement::size();
+  return true;
+}
+
 void
 D868UVCodeplug::allocateUpdated() {
   this->allocateVFOSettings();

@@ -30,6 +30,8 @@ private slots:
   void testWriteAllNoEditSendsRadioOwn();
   void testWriteAllRestoresImageExactly_data();
   void testWriteAllRestoresImageExactly();
+  void testSimplexToSplitAndBack_data();
+  void testSimplexToSplitAndBack();
 };
 
 #endif // ANYTONE_PRESERVE_TEST_HH
