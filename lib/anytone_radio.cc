@@ -304,6 +304,12 @@ AnytoneRadio::setPreservingWrite(bool enable, const QString &planFile, bool dryR
 }
 
 
+void
+AnytoneRadio::setRestoreImage(const AnytonePreservingWrite::Memory &image) {
+  _restore = image;
+}
+
+
 bool
 AnytoneRadio::readAddresses(const QList<QPair<unsigned, unsigned>> &ranges,
                             AnytonePreservingWrite::Memory &mem, unsigned &failedAddr,
@@ -366,11 +372,15 @@ AnytoneRadio::uploadPreserving() {
   emit uploadProgress(0);
   AnytoneWriteAll::Result res;
   if (! AnytoneWriteAll::build(*_codeplug, *map, reader, _config, _codeplugFlags, res, _currentYAML,
-                               [this](int p) { emit uploadProgress(p/2); }, _errorStack)) {
+                               [this](int p) { emit uploadProgress(p/2); }, _errorStack,
+                               _restore.isEmpty() ? nullptr : &_restore)) {
     errMsg(_errorStack) << "Cannot plan the write; nothing was written.";
     return false;
   }
   _planStats = res.planStats;
+  if (! _restore.isEmpty())
+    logInfo() << "Restore: " << _restore.size() << " blocks in the saved image, " << res.plan.size()
+              << " differ from the radio and are put back exactly.";
   logInfo() << "Write everything (" << map->model << "): " << res.pages.size() << " pages of "
             << map->pageSize/1024 << " KB read (" << res.blocksRead << " blocks), " << res.blocksChanged
             << " blocks changed (" << res.bytesChanged << " bytes), " << res.send.size()

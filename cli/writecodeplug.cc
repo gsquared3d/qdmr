@@ -11,6 +11,7 @@
 #include "autodetect.hh"
 #include "radiolimits.hh"
 #include "anytone_radio.hh"
+#include "anytone_preserve.hh"
 
 
 int writeCodeplug(QCommandLineParser &parser, QCoreApplication &app) {
@@ -93,6 +94,11 @@ int writeCodeplug(QCommandLineParser &parser, QCoreApplication &app) {
   flags.setAutoEnableGPS(parser.isSet("auto-enable-gps"));
   flags.setAutoEnableRoaming(parser.isSet("auto-enable-roaming"));
 
+  if (parser.isSet("restore-image") && (! parser.isSet("preserve"))) {
+    logError() << "--restore-image needs --preserve; nothing was written.";
+    delete intermediate;
+    return -1;
+  }
   if (parser.isSet("dry-run") && (! parser.isSet("preserve"))) {
     logError() << "--dry-run needs --preserve.";
     delete intermediate;
@@ -109,6 +115,22 @@ int writeCodeplug(QCommandLineParser &parser, QCoreApplication &app) {
       logError() << "--preserve cannot be combined with --init-codeplug.";
       delete intermediate;
       return -1;
+    }
+    if (parser.isSet("restore-image")) {
+      AnytonePreservingWrite::Memory image;
+      ErrorStack ierr;
+      if (! AnytonePreservingWrite::readMemoryFile(parser.value("restore-image"), image, ierr)) {
+        logError() << "Cannot read the restore image: " << ierr.format() << " Nothing was written.";
+        delete intermediate;
+        return -1;
+      }
+      if (image.isEmpty()) {
+        logError() << "The restore image is empty; nothing was written.";
+        delete intermediate;
+        return -1;
+      }
+      anytone->setRestoreImage(image);
+      logInfo() << "Restore image '" << parser.value("restore-image") << "': " << image.size() << " blocks.";
     }
     anytone->setPreservingWrite(true, parser.value("plan"), parser.isSet("dry-run"),
                                 parser.value("save-current"), true, parser.value("expect"));

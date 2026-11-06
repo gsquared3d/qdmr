@@ -28,6 +28,8 @@ private slots:
   void testWriteMaps();
   void testWriteAllNoEditSendsRadioOwn_data();
   void testWriteAllNoEditSendsRadioOwn();
+  void testWriteAllRestoresImageExactly_data();
+  void testWriteAllRestoresImageExactly();
 };
 
 #endif // ANYTONE_PRESERVE_TEST_HH

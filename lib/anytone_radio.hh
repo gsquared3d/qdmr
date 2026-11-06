@@ -58,6 +58,10 @@ public:
                           const QString &currentYAML=QString(), bool wholeAreas=true,
                           const QString &expectFile=QString());
 
+  /** Makes the next preserving write a restore: instead of an edit, the blocks of @c image that
+   * differ from the radio are written back exactly (W-09). An empty image switches it off. */
+  void setRestoreImage(const AnytonePreservingWrite::Memory &image);
+
   /** Read-only: reads the given address ranges ([start, end), 16-byte aligned) from the radio
    * into @c mem, block by block. Stops at the first block the radio does not answer correctly
    * and returns @c false with its address in @c failedAddr; @c mem then holds every block read
@@ -120,6 +124,8 @@ protected:
   /** Where to save the radio's expected content after the write (and, with suffixes
    * ".ranges" and ".before", the pages written and their content before). May be empty. */
   QString _expectFile;
+  /** If not empty, the next preserving write restores this memory image (W-09). */
+  AnytonePreservingWrite::Memory _restore;
   /** Counters of the last preserving-write plan. */
   AnytonePreservingWrite::Stats _planStats;
   /** Owns the generic configuration. */

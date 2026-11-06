@@ -8,6 +8,7 @@
 #include "anytone_codeplug.hh"
 #include "d878uv2_codeplug.hh"
 #include "d578uv_codeplug.hh"
+#include "d168uv_codeplug.hh"
 
 static constexpr unsigned BS = AnytonePreservingWrite::BlockSize;
 
@@ -84,12 +85,43 @@ static const AnytoneWriteAll::Map d578uvMap = {
   "CPS 1.18 write capture of Tom's D578UV, 2026-11-03 (ham-radio-coordinator W-07)"
 };
 
+/* D168UV: every block AnyTone D168UV CPS 1.07 writes, from the USB capture of the CPS writing a
+ * programmed D168UV back unchanged (ham-radio-coordinator W-09, 2026-11-05; 4,733 blocks in 23
+ * pages). The CPS writes only channel records in use. The 16 KB page size is taken from the
+ * D878UVII (W-04 §4b) and not yet proven on this model; whole pages are read and every block
+ * holding data in them is sent, and the margin check reads the rest of each 64 KB block (W-09). */
+static const AnytoneWriteAll::Map d168uvMap = {
+  "AnyTone AT-D168UV", 0x4000, {
+    {0x00800000, 0x00800180}, {0x00800280, 0x00800400}, {0x00800500, 0x00800680},
+    {0x00802000, 0x00802180}, {0x00802280, 0x00802400}, {0x00802500, 0x00802680},
+    {0x00fc0800, 0x00fc0880}, {0x00fc2800, 0x00fc2880}, {0x01000000, 0x01000200},
+    {0x01040000, 0x01040020}, {0x01042000, 0x01042020}, {0x01042080, 0x01042090},
+    {0x01043000, 0x01043080}, {0x01640800, 0x01640890}, {0x02480000, 0x02480010},
+    {0x02480200, 0x02480230}, {0x024c0c80, 0x024c0c90}, {0x024c0d00, 0x024c0f00},
+    {0x024c1000, 0x024c10d0}, {0x024c1280, 0x024c12a0}, {0x024c1300, 0x024c1380},
+    {0x024c1400, 0x024c1420}, {0x024c1440, 0x024c1470}, {0x024c1500, 0x024c1740},
+    {0x024c1800, 0x024c1d00}, {0x024c2000, 0x024c23f0}, {0x024c2600, 0x024c2610},
+    {0x024c4000, 0x024c8020}, {0x02500000, 0x025000f0}, {0x02500100, 0x02500630},
+    {0x02501000, 0x02501240}, {0x02501280, 0x025012b0}, {0x02501400, 0x02501500},
+    {0x02502000, 0x02502400}, {0x02504800, 0x02504890}, {0x02540000, 0x02540020},
+    {0x02580000, 0x02580020}, {0x02582000, 0x02582020}, {0x025c0000, 0x025c0860},
+    {0x025c0b00, 0x025c0b30}, {0x025c0c00, 0x025c1bf0}, {0x025c1c00, 0x025c1c20},
+    {0x025c2c80, 0x025c2ca0}, {0x02600000, 0x02609c40}, {0x02640000, 0x026404f0},
+    {0x02680000, 0x02680070}, {0x02900000, 0x02900080}, {0x02900100, 0x02900180},
+    {0x02cc0000, 0x02cc0080}, {0x02cc0100, 0x02cc0180}, {0x04800000, 0x04800010},
+    {0x04840000, 0x04840010}
+  },
+  "D168UV CPS 1.07 write capture, 2026-11-05 (ham-radio-coordinator W-09)"
+};
+
 const AnytoneWriteAll::Map *
 AnytoneWriteAll::forCodeplug(const AnytoneCodeplug &cp) {
   if (dynamic_cast<const D878UV2Codeplug *>(&cp))
     return &d878uv2Map;
   if (dynamic_cast<const D578UVCodeplug *>(&cp))
     return &d578uvMap;
+  if (dynamic_cast<const D168UVCodeplug *>(&cp))
+    return &d168uvMap;
   return nullptr;
 }
 
@@ -132,7 +164,8 @@ readPage(const AnytoneWriteAll::Reader &read, unsigned page, unsigned size,
 bool
 AnytoneWriteAll::build(AnytoneCodeplug &cp, const Map &map, const Reader &read, Config *edited,
                        const Codeplug::Flags &flags, Result &res, const QString &currentYAML,
-                       const std::function<void(int)> &progress, const ErrorStack &err) {
+                       const std::function<void(int)> &progress, const ErrorStack &err,
+                       const Memory *restore) {
   const unsigned P = map.pageSize;
   res = Result();
   res.pages = pages(map);
@@ -166,8 +199,29 @@ AnytoneWriteAll::build(AnytoneCodeplug &cp, const Map &map, const Reader &read, 
     }
     return true;
   };
-  if (! AnytonePreservingWrite::plan(cp, cached, edited, flags, res.plan, res.planStats,
-                                     currentYAML, nullptr, err, false)) {
+  if (restore) {
+    // Restore (W-09): the "edit" is a saved memory image. Every block of the image that differs
+    // from the radio is planned with the image's bytes, exactly; nothing is encoded or merged.
+    for (auto it = restore->cbegin(); it != restore->cend(); it++) {
+      if ((it.key() % BS) || (int(BS) != it->size())) {
+        errMsg(err) << "Restore image block 0x" << QString::number(it.key(), 16)
+                    << " is not one aligned 16-byte block; nothing was written.";
+        return false;
+      }
+      QByteArray now(BS, '\0');
+      if (! cached(it.key(), reinterpret_cast<uint8_t *>(now.data()), BS, err)) {
+        errMsg(err) << "Cannot read block 0x" << QString::number(it.key(), 16) << "; nothing was written.";
+        return false;
+      }
+      if (now != *it) {
+        AnytonePreservingWrite::Block blk;
+        blk.before = now;
+        blk.after = *it;
+        res.plan[it.key()] = blk;
+      }
+    }
+  } else if (! AnytonePreservingWrite::plan(cp, cached, edited, flags, res.plan, res.planStats,
+                                            currentYAML, nullptr, err, false)) {
     errMsg(err) << "Cannot plan the edit; nothing was written.";
     return false;
   }

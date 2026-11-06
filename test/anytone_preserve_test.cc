@@ -424,7 +424,7 @@ void AnytonePreserveTest::testWriteMaps_data() {
   QTest::newRow("d878uv")  << "d878uv"  << 0 << 0;
   QTest::newRow("d878uv2") << "d878uv2" << 12986 << 29;   // CPS 3.06, W-01
   QTest::newRow("d578uv")  << "d578uv"  << 12841 << 30;   // CPS 1.18, W-07
-  QTest::newRow("d168uv")  << "d168uv"  << 0 << 0;
+  QTest::newRow("d168uv")  << "d168uv"  << 4733 << 23;    // CPS 1.07, W-09
 }
 void AnytonePreserveTest::testWriteMaps() {
   QFETCH(QString, radio); QFETCH(int, blocks); QFETCH(int, pages);
@@ -450,6 +450,7 @@ void AnytonePreserveTest::testWriteAllNoEditSendsRadioOwn_data() {
   QTest::addColumn<QString>("radio");
   QTest::newRow("d878uv2") << QString("d878uv2");
   QTest::newRow("d578uv")  << QString("d578uv");
+  QTest::newRow("d168uv")  << QString("d168uv");
 }
 void AnytonePreserveTest::testWriteAllNoEditSendsRadioOwn() {
   QFETCH(QString, radio);
@@ -480,6 +481,68 @@ void AnytonePreserveTest::testWriteAllNoEditSendsRadioOwn() {
   for (auto it = res.expected.cbegin(); it != res.expected.cend(); it++)
     QVERIFY2(res.image.value(it.key()) == *it,
              qPrintable(QString("expected block 0x%1 differs from the radio").arg(it.key(), 0, 16)));
+}
+
+/* Restore (W-09): a saved memory image is put back exactly, whatever qdmr can decode, and
+ * nothing else changes. The radio is the test codeplug with some blocks altered afterwards. */
+void AnytonePreserveTest::testWriteAllRestoresImageExactly_data() {
+  QTest::addColumn<QString>("radio");
+  QTest::newRow("d878uv2") << QString("d878uv2");
+  QTest::newRow("d578uv")  << QString("d578uv");
+  QTest::newRow("d168uv")  << QString("d168uv");
+}
+void AnytonePreserveTest::testWriteAllRestoresImageExactly() {
+  QFETCH(QString, radio);
+  std::unique_ptr<AnytoneCodeplug> cp(makeCodeplug(radio));
+  APW::Memory saved; QString msg;
+  QVERIFY2(makeRadio(*cp, saved, msg), qPrintable(msg));
+  // The radio now differs from the saved image: an AES-key-area block, a filler block turned
+  // to 0x00 and a block outside every CPS page (as the CPS round trip did on the D168UV).
+  APW::Memory now = saved;
+  const unsigned key = 0x024c4040, filler = 0x02501100, outside = 0x04340000;
+  saved[key] = QByteArray::fromHex("31323334353637383930414243444546");
+  now[key] = QByteArray::fromHex("31323334353637383930414243443030");
+  saved[filler] = QByteArray(APW::BlockSize, char(0xff));
+  now[filler] = QByteArray(APW::BlockSize, char(0x00));
+  saved[outside] = QByteArray::fromHex("00112233445566778899aabbccddeeff");
+  now[outside] = QByteArray(APW::BlockSize, char(0xff));
+  const AnytoneWriteAll::Map *map = AnytoneWriteAll::forCodeplug(*cp);
+  QVERIFY(nullptr != map);
+  Config config;
+  ErrorStack err;
+  QVERIFY2(config.readYAML(":/data/anytone_preserve_test.yaml", err), qPrintable(err.format()));
+  Config *pre = cp->preprocess(&config, err);
+  QVERIFY2(pre, qPrintable(err.format()));
+  AnytoneWriteAll::Result res;
+  Codeplug::Flags flags;
+  bool ok = AnytoneWriteAll::build(*cp, *map, simulatedRadio(now), pre, flags, res, QString(),
+                                   nullptr, err, &saved);
+  delete pre;
+  QVERIFY2(ok, qPrintable(err.format()));
+  QCOMPARE(res.plan.size(), 3);
+  QCOMPARE(res.blocksChanged, 3u);
+  QCOMPARE(res.pagesAdded, 1u);      // the block outside every CPS page brings its page in
+  for (unsigned a : {key, filler, outside}) {
+    QCOMPARE(res.expected.value(a), saved[a]);   // what the radio holds after the write
+    if (! AnytoneWriteAll::blank(saved[a]))       // a blank block is left to the page erase
+      QCOMPARE(res.send.value(a), saved[a]);      // unless the CPS writes it (D168UV)
+  }
+  // Every other block of every page written ends up as the radio holds it now.
+  for (auto it = res.expected.cbegin(); it != res.expected.cend(); it++) {
+    if ((it.key() == key) || (it.key() == filler) || (it.key() == outside))
+      continue;
+    QByteArray own = now.contains(it.key()) ? now[it.key()] : QByteArray(APW::BlockSize, char(0));
+    if (! AnytoneWriteAll::blank(own))
+      QCOMPARE(*it, own);
+  }
+  // A restore onto a radio that already holds the image changes nothing.
+  AnytoneWriteAll::Result again;
+  Config *pre2 = cp->preprocess(&config, err);
+  ok = AnytoneWriteAll::build(*cp, *map, simulatedRadio(saved), pre2, flags, again, QString(),
+                              nullptr, err, &saved);
+  delete pre2;
+  QVERIFY2(ok, qPrintable(err.format()));
+  QCOMPARE(again.plan.size(), 0);
 }
 
 QTEST_GUILESS_MAIN(AnytonePreserveTest)

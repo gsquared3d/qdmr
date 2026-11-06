@@ -123,6 +123,14 @@ int main(int argc, char *argv[])
                      "compare what is read with this file."),
                      "FILENAME"
                    });
+  parser.addOption({
+                     "restore-image",
+                     QCoreApplication::translate("main", "With --preserve (AnyTone): instead of an "
+                     "edit, put back a saved memory file (one line 'ADDRESS DATA' per 16-byte block): "
+                     "every block of it that differs from the radio is written back exactly. The "
+                     "codeplug file argument is still read but not used for the write."),
+                     "FILENAME"
+                   });
   parser.addOption(QCommandLineOption(
                      "missing-blank",
                      QCoreApplication::translate(

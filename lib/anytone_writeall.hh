@@ -68,10 +68,13 @@ public:
 
   /** Reads the pages through @c read, plans @c edited (already pre-processed) on them and
    * builds the blocks to send. Nothing is written.
-   * @param progress Called with 0..100 while reading (may be empty). */
+   * @param progress Called with 0..100 while reading (may be empty).
+   * @param restore If not null, a saved memory image to put back instead of an edit: every block
+   *        of the image that differs from the radio gets the image's bytes exactly (W-09). */
   static bool build(AnytoneCodeplug &cp, const Map &map, const Reader &read, Config *edited,
                     const Codeplug::Flags &flags, Result &res, const QString &currentYAML,
-                    const std::function<void(int)> &progress, const ErrorStack &err=ErrorStack());
+                    const std::function<void(int)> &progress, const ErrorStack &err=ErrorStack(),
+                    const Memory *restore=nullptr);
 
   /** Writes the pages as a ranges file ("START END" in hex per line), the format
    * "dmrconf read-addr" reads, so the radio can be read back and compared. */
